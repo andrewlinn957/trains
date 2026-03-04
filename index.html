@@ -1,0 +1,943 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bowes Park <-> Moorgate Departures</title>
+  <style>
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1b1f24;
+  --muted: #5b6673;
+  --border: #d6dce3;
+  --accent: #004a99;
+  --ok: #157347;
+  --warn: #8b6a00;
+  --bad: #a91e2c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #eef3fa 0%, var(--bg) 45%, #f7f8fa 100%);
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.subtitle {
+  margin: 0.25rem 0 0.9rem;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  box-shadow: 0 2px 10px rgba(11, 38, 69, 0.08);
+}
+
+.settings-panel {
+  display: none;
+}
+
+.settings-panel h2,
+.board h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.15rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+}
+
+.settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+input,
+select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  background: #fff;
+}
+
+.checkbox {
+  align-self: end;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.actions {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.06);
+}
+
+.note {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-panel {
+  margin-top: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.45rem;
+}
+
+.boards {
+  margin-top: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 0.8rem;
+}
+
+.board-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin-bottom: 0.5rem;
+}
+
+.board-meta {
+  color: var(--muted);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  padding: 0.45rem 0.4rem;
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  color: #38424f;
+  background: #f8fbff;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+.status-ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.status-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.status-bad {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (max-width: 640px) {
+  .app {
+    padding: 0.7rem;
+  }
+
+  .topbar h1 {
+    font-size: 1.4rem;
+  }
+}
+
+</style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <h1>Bowes Park <-> Moorgate Dashboard</h1>
+      <p class="subtitle">Live departures monitor using LDBSVWS</p>
+    </header>
+
+    <section class="panel settings-panel">
+      <h2>API Settings</h2>
+      <form id="settings-form" class="settings-grid">
+        <label>
+          Base URL
+          <input id="base-url" name="baseUrl" type="url" required>
+        </label>
+        <label>
+          Auth Mode
+          <select id="auth-mode" name="authMode">
+            <option value="x-apikey">Header: x-apikey</option>
+            <option value="basic">Basic (apiKey:secret)</option>
+            <option value="apikey-secret">Headers: apikey + secret</option>
+            <option value="x-api-key-secret">Headers: x-api-key + x-api-secret</option>
+            <option value="x-ibm-client">Headers: x-ibm-client-id + x-ibm-client-secret</option>
+            <option value="ocp-apim">Header: Ocp-Apim-Subscription-Key</option>
+            <option value="bearer">Bearer apiKey</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label>
+          API Key
+          <input id="api-key" name="apiKey" type="text" autocomplete="off">
+        </label>
+        <label>
+          Secret
+          <input id="secret" name="secret" type="password" autocomplete="off">
+        </label>
+        <label>
+          Endpoint
+          <select id="endpoint-mode" name="endpointMode">
+            <option value="dep-details">GetDepBoardWithDetails</option>
+            <option value="auto">Auto (details, departures, arr/dep)</option>
+            <option value="departures">GetDepartureBoardByCRS</option>
+            <option value="arrdep">GetArrivalDepartureBoardByCRS</option>
+            <option value="arrdep-details">GetArrDepBoardWithDetails</option>
+          </select>
+        </label>
+        <label>
+          Time Format
+          <select id="time-format" name="timeFormat">
+            <option value="auto">Auto (endpoint-aware)</option>
+            <option value="HHmmss">HHmmss</option>
+            <option value="yyyyMMddTHHmmss">yyyyMMddTHHmmss</option>
+          </select>
+        </label>
+        <label>
+          Rows
+          <input id="num-rows" name="numRows" type="number" min="1" max="150" step="1">
+        </label>
+        <label>
+          Time Window (mins)
+          <input id="time-window" name="timeWindow" type="number" min="1" max="1440" step="1">
+        </label>
+        <label>
+          Refresh (seconds)
+          <input id="refresh-seconds" name="refreshSeconds" type="number" min="10" max="600" step="1">
+        </label>
+        <label class="checkbox">
+          <input id="auto-refresh" name="autoRefresh" type="checkbox">
+          Auto-refresh
+        </label>
+      </form>
+      <div class="actions">
+        <button id="load-env" type="button">Load .env</button>
+        <button id="import-env-file" type="button">Import .env File</button>
+        <input id="env-file-input" type="file" accept=".env,text/plain" hidden>
+        <button id="save-settings" type="button">Save Settings</button>
+        <button id="refresh-now" type="button">Refresh Now</button>
+      </div>
+      <p id="settings-note" class="note">
+        Credentials are stored in browser localStorage for this page only.
+      </p>
+    </section>
+
+    <section class="panel status-panel">
+      <div><strong>Status:</strong> <span id="status-text">Idle</span></div>
+      <div><strong>Last Updated:</strong> <span id="last-updated">-</span></div>
+      <div><strong>Next Refresh:</strong> <span id="next-refresh">-</span></div>
+    </section>
+
+    <section class="boards">
+      <article class="panel board" id="board-bop-mog">
+        <header class="board-header">
+          <h2>Bowes Park -> Moorgate</h2>
+          <small class="board-meta" data-role="meta">Waiting for first refresh</small>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>STD</th>
+                <th>ETD</th>
+                <th>Destination</th>
+                <th>Platform</th>
+                <th>Operator</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody data-role="rows"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel board" id="board-mog-bop">
+        <header class="board-header">
+          <h2>Moorgate -> Bowes Park</h2>
+          <small class="board-meta" data-role="meta">Waiting for first refresh</small>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>STD</th>
+                <th>ETD</th>
+                <th>Destination</th>
+                <th>Platform</th>
+                <th>Operator</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody data-role="rows"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+const STORAGE_KEY = "ldbsvws_dashboard_config_v3";
+
+const DEFAULT_CONFIG = {
+  baseUrl: "https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS",
+  authMode: "x-apikey",
+  apiKey: "KAi62jDRCMUw76oSDkEGuAi5Na77iyRPyRA9BV9a6jCohYKc",
+  secret: "VA4THRoBwreLzshGsLDGW46cK6br6O0sDjn5vmmEHjbcAPE5KwHKipXUWQ0MPuNS",
+  endpointMode: "dep-details",
+  timeFormat: "yyyyMMddTHHmmss",
+  numRows: 10,
+  timeWindow: 120,
+  refreshSeconds: 30,
+  autoRefresh: true
+};
+
+const BOARD_DEFS = [
+  {
+    id: "bop-mog",
+    crs: "BOP",
+    filterCRS: "MOG",
+    filterType: "to"
+  },
+  {
+    id: "mog-bop",
+    crs: "MOG",
+    filterCRS: "BOP",
+    filterType: "to"
+  }
+];
+
+let config = { ...DEFAULT_CONFIG };
+let isRefreshing = false;
+let refreshTimer = null;
+let countdownTimer = null;
+let nextRefreshAt = null;
+
+const ui = {
+  baseUrl: document.getElementById("base-url"),
+  authMode: document.getElementById("auth-mode"),
+  apiKey: document.getElementById("api-key"),
+  secret: document.getElementById("secret"),
+  endpointMode: document.getElementById("endpoint-mode"),
+  timeFormat: document.getElementById("time-format"),
+  numRows: document.getElementById("num-rows"),
+  timeWindow: document.getElementById("time-window"),
+  refreshSeconds: document.getElementById("refresh-seconds"),
+  autoRefresh: document.getElementById("auto-refresh"),
+  statusText: document.getElementById("status-text"),
+  lastUpdated: document.getElementById("last-updated"),
+  nextRefresh: document.getElementById("next-refresh"),
+  settingsNote: document.getElementById("settings-note"),
+  loadEnvBtn: document.getElementById("load-env"),
+  importEnvBtn: document.getElementById("import-env-file"),
+  envFileInput: document.getElementById("env-file-input"),
+  saveBtn: document.getElementById("save-settings"),
+  refreshBtn: document.getElementById("refresh-now"),
+  settingsForm: document.getElementById("settings-form")
+};
+
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_CONFIG };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      baseUrl: DEFAULT_CONFIG.baseUrl,
+      authMode: DEFAULT_CONFIG.authMode,
+      apiKey: DEFAULT_CONFIG.apiKey,
+      secret: DEFAULT_CONFIG.secret,
+      endpointMode: DEFAULT_CONFIG.endpointMode,
+      timeFormat: DEFAULT_CONFIG.timeFormat
+    };
+  } catch (_err) {
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+function saveConfig(nextConfig) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
+}
+
+function applyConfigToForm(nextConfig) {
+  ui.baseUrl.value = nextConfig.baseUrl;
+  ui.authMode.value = nextConfig.authMode;
+  ui.apiKey.value = nextConfig.apiKey;
+  ui.secret.value = nextConfig.secret;
+  ui.endpointMode.value = nextConfig.endpointMode;
+  ui.timeFormat.value = nextConfig.timeFormat;
+  ui.numRows.value = String(nextConfig.numRows);
+  ui.timeWindow.value = String(nextConfig.timeWindow);
+  ui.refreshSeconds.value = String(nextConfig.refreshSeconds);
+  ui.autoRefresh.checked = Boolean(nextConfig.autoRefresh);
+}
+
+function toBoundedInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function readConfigFromForm() {
+  return {
+    baseUrl: (ui.baseUrl.value || "").trim().replace(/\/+$/, ""),
+    authMode: ui.authMode.value,
+    apiKey: (ui.apiKey.value || "").trim(),
+    secret: (ui.secret.value || "").trim(),
+    endpointMode: ui.endpointMode.value,
+    timeFormat: ui.timeFormat.value,
+    numRows: toBoundedInt(ui.numRows.value, DEFAULT_CONFIG.numRows, 1, 150),
+    timeWindow: toBoundedInt(ui.timeWindow.value, DEFAULT_CONFIG.timeWindow, 1, 1440),
+    refreshSeconds: toBoundedInt(ui.refreshSeconds.value, DEFAULT_CONFIG.refreshSeconds, 10, 600),
+    autoRefresh: Boolean(ui.autoRefresh.checked)
+  };
+}
+
+function setStatus(text, className = "") {
+  ui.statusText.textContent = text;
+  ui.statusText.className = className;
+}
+
+function setSettingsNote(text) {
+  ui.settingsNote.textContent = text;
+}
+
+function parseEnvText(text) {
+  const out = {};
+  const lines = text.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^([^:=\s]+)\s*[:=]\s*(.+)$/);
+    if (!match) continue;
+    out[match[1].trim().toLowerCase()] = match[2].trim();
+  }
+  return out;
+}
+
+function applyEnvValues(env) {
+  if (env.apikey) ui.apiKey.value = env.apikey;
+  if (env.secret) ui.secret.value = env.secret;
+  if (env.baseurl) ui.baseUrl.value = env.baseurl;
+  if (!env.baseurl && !ui.baseUrl.value.trim()) {
+    ui.baseUrl.value = DEFAULT_CONFIG.baseUrl;
+  }
+  ui.authMode.value = "x-apikey";
+}
+
+async function loadEnvIntoForm() {
+  try {
+    const res = await fetch(".env", { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const text = await res.text();
+    const env = parseEnvText(text);
+    applyEnvValues(env);
+    setSettingsNote("Loaded values from .env.");
+  } catch (err) {
+    setSettingsNote(`Could not load .env automatically (${err.message}). Use Import .env File or paste credentials.`);
+  }
+}
+
+async function importEnvFromFile() {
+  const files = ui.envFileInput.files;
+  if (!files || files.length === 0) return;
+  try {
+    const text = await files[0].text();
+    const env = parseEnvText(text);
+    applyEnvValues(env);
+    setSettingsNote("Imported values from selected .env file.");
+    saveFromForm();
+  } catch (err) {
+    setSettingsNote(`Could not read selected file (${err.message}).`);
+  } finally {
+    ui.envFileInput.value = "";
+  }
+}
+
+function encodeBase64(input) {
+  try {
+    return btoa(unescape(encodeURIComponent(input)));
+  } catch (_err) {
+    return "";
+  }
+}
+
+function getAuthHeaders(nextConfig) {
+  const headers = {};
+  switch (nextConfig.authMode) {
+    case "x-apikey":
+      if (nextConfig.apiKey) headers["x-apikey"] = nextConfig.apiKey;
+      break;
+    case "basic":
+      if (nextConfig.apiKey && nextConfig.secret) {
+        headers.Authorization = `Basic ${encodeBase64(`${nextConfig.apiKey}:${nextConfig.secret}`)}`;
+      }
+      break;
+    case "apikey-secret":
+      if (nextConfig.apiKey) headers.apikey = nextConfig.apiKey;
+      if (nextConfig.secret) headers.secret = nextConfig.secret;
+      break;
+    case "x-api-key-secret":
+      if (nextConfig.apiKey) headers["x-api-key"] = nextConfig.apiKey;
+      if (nextConfig.secret) headers["x-api-secret"] = nextConfig.secret;
+      break;
+    case "x-ibm-client":
+      if (nextConfig.apiKey) headers["x-ibm-client-id"] = nextConfig.apiKey;
+      if (nextConfig.secret) headers["x-ibm-client-secret"] = nextConfig.secret;
+      break;
+    case "ocp-apim":
+      if (nextConfig.apiKey) headers["Ocp-Apim-Subscription-Key"] = nextConfig.apiKey;
+      if (nextConfig.secret) headers["Ocp-Apim-Subscription-Secret"] = nextConfig.secret;
+      break;
+    case "bearer":
+      if (nextConfig.apiKey) headers.Authorization = `Bearer ${nextConfig.apiKey}`;
+      break;
+    case "none":
+    default:
+      break;
+  }
+  return headers;
+}
+
+function pad(num) {
+  return String(num).padStart(2, "0");
+}
+
+function formatForApi(date, mode) {
+  if (mode === "HHmmss") {
+    return `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  }
+  if (mode === "yyyyMMddTHHmmss") {
+    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  }
+  return "";
+}
+
+function getTimeCandidates(mode) {
+  const now = new Date();
+  if (mode === "HHmmss" || mode === "yyyyMMddTHHmmss") {
+    return [formatForApi(now, mode)];
+  }
+  return [];
+}
+
+function getEndpointCandidates(mode) {
+  if (mode === "dep-details") {
+    return ["GetDepBoardWithDetails"];
+  }
+  if (mode === "arrdep-details") {
+    return ["GetArrDepBoardWithDetails"];
+  }
+  if (mode === "departures") {
+    return ["GetDepartureBoardByCRS"];
+  }
+  if (mode === "arrdep") {
+    return ["GetArrivalDepartureBoardByCRS"];
+  }
+  return ["GetDepBoardWithDetails", "GetDepartureBoardByCRS", "GetArrivalDepartureBoardByCRS", "GetArrDepBoardWithDetails"];
+}
+
+function getAutoTimeCandidates(endpointName) {
+  const now = new Date();
+  const details = endpointName.includes("WithDetails");
+  if (details) {
+    return [
+      formatForApi(now, "yyyyMMddTHHmmss"),
+      formatForApi(now, "HHmmss"),
+      `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+    ];
+  }
+  return [
+    formatForApi(now, "HHmmss"),
+    formatForApi(now, "yyyyMMddTHHmmss"),
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  ];
+}
+
+function buildBoardUrl(nextConfig, board, endpointName, timeValue) {
+  const params = new URLSearchParams({
+    numRows: String(nextConfig.numRows),
+    timeWindow: String(nextConfig.timeWindow),
+    filterCRS: board.filterCRS,
+    filterType: board.filterType,
+    services: "P"
+  });
+  return `${nextConfig.baseUrl}/api/20220120/${endpointName}/${board.crs}/${encodeURIComponent(timeValue)}?${params.toString()}`;
+}
+
+function reasonCodeText(reasonObj) {
+  if (!reasonObj || typeof reasonObj !== "object") return "";
+  if (typeof reasonObj.Value === "number") return `Reason code ${reasonObj.Value}`;
+  return "";
+}
+
+function deriveStatus(service) {
+  const etd = String(service.etd || service.atd || service.eta || "").trim();
+  const etdDisplay = formatTimeOnly(etd);
+  if (service.isCancelled || /cancel/i.test(etd)) {
+    const reason = reasonCodeText(service.cancelReason);
+    return {
+      text: reason ? `Cancelled (${reason})` : "Cancelled",
+      className: "status-bad"
+    };
+  }
+
+  if (!etd) {
+    return { text: "Unknown", className: "status-warn" };
+  }
+
+  if (/^on\s*time$/i.test(etd)) {
+    return { text: "On time", className: "status-ok" };
+  }
+
+  if (/delayed|late/i.test(etd)) {
+    const reason = reasonCodeText(service.delayReason);
+    return {
+      text: reason ? `${etdDisplay} (${reason})` : etdDisplay,
+      className: "status-warn"
+    };
+  }
+
+  if (service.std && /^\d{2}:\d{2}$/.test(etdDisplay) && etdDisplay !== formatTimeOnly(service.std)) {
+    return { text: "Delayed", className: "status-warn" };
+  }
+
+  return { text: etdDisplay, className: "status-ok" };
+}
+
+function destinationText(service) {
+  if (!Array.isArray(service.destination) || service.destination.length === 0) {
+    return "-";
+  }
+  return service.destination
+    .map((loc) => {
+      const name = String(loc.locationName || "").trim();
+      const via = String(loc.via || "").trim();
+      if (!name) return "";
+      return via ? `${name} via ${via}` : name;
+    })
+    .filter(Boolean)
+    .join(", ") || "-";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatGeneratedAt(value) {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+function formatTimeOnly(value) {
+  const text = String(value || "").trim();
+  if (!text) return "-";
+  if (/^\d{1,2}:\d{2}$/.test(text)) return text;
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(text)) return text.slice(0, 5);
+  if (/^\d{6}$/.test(text)) return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
+  if (/^\d{8}T\d{6}$/.test(text)) return `${text.slice(9, 11)}:${text.slice(11, 13)}`;
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  return text;
+}
+
+function renderBoardSuccess(boardId, result) {
+  const boardEl = document.getElementById(`board-${boardId}`);
+  const rowsEl = boardEl.querySelector("[data-role='rows']");
+  const metaEl = boardEl.querySelector("[data-role='meta']");
+  const boardData = result.data || {};
+  const services = Array.isArray(boardData.trainServices) ? boardData.trainServices : [];
+
+  if (services.length === 0) {
+    rowsEl.innerHTML = "<tr><td colspan='6'>No matching services found in the current window.</td></tr>";
+  } else {
+    rowsEl.innerHTML = services
+      .map((service) => {
+        const std = formatTimeOnly(service.std || service.sta || "-");
+        const etd = formatTimeOnly(service.etd || service.atd || service.eta || "-");
+        const destination = destinationText(service);
+        const platform = service.platform || (service.platformIsHidden ? "Hidden" : "-");
+        const operator = service.operator || service.operatorCode || "-";
+        const status = deriveStatus(service);
+
+        return `<tr>
+          <td class="mono">${escapeHtml(std)}</td>
+          <td class="mono">${escapeHtml(etd)}</td>
+          <td>${escapeHtml(destination)}</td>
+          <td>${escapeHtml(platform)}</td>
+          <td>${escapeHtml(operator)}</td>
+          <td class="${escapeHtml(status.className)}">${escapeHtml(status.text)}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  metaEl.textContent = `Generated: ${formatGeneratedAt(boardData.generatedAt)} | ${services.length} services`;
+}
+
+function renderBoardError(boardId, result) {
+  const boardEl = document.getElementById(`board-${boardId}`);
+  const rowsEl = boardEl.querySelector("[data-role='rows']");
+  const metaEl = boardEl.querySelector("[data-role='meta']");
+
+  rowsEl.innerHTML = `<tr><td colspan='6' class="status-bad">${escapeHtml(result.error)}</td></tr>`;
+  metaEl.textContent = "Request failed";
+}
+
+async function fetchBoard(board, nextConfig) {
+  const endpointCandidates = getEndpointCandidates(nextConfig.endpointMode);
+  const authHeaders = getAuthHeaders(nextConfig);
+  const attemptErrors = [];
+
+  for (const endpoint of endpointCandidates) {
+    const manualCandidates = getTimeCandidates(nextConfig.timeFormat);
+    const timeCandidates = manualCandidates.length > 0 ? manualCandidates : getAutoTimeCandidates(endpoint);
+    for (const timeValue of timeCandidates) {
+      const url = buildBoardUrl(nextConfig, board, endpoint, timeValue);
+
+      try {
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            ...authHeaders
+          },
+          cache: "no-store"
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          const snippet = text ? text.slice(0, 120).replace(/\s+/g, " ") : "";
+          attemptErrors.push(`HTTP ${res.status} ${res.statusText} (${endpoint}, time=${timeValue}) ${snippet}`);
+          continue;
+        }
+
+        const data = await res.json();
+        return {
+          ok: true,
+          data,
+          endpoint,
+          timeValue
+        };
+      } catch (err) {
+        attemptErrors.push(`Network/CORS error (${endpoint}, time=${timeValue}): ${err.message}`);
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error: attemptErrors[0] || "Unknown request error",
+    attempts: attemptErrors
+  };
+}
+
+function clearTimers() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+}
+
+function updateNextRefreshText() {
+  if (!config.autoRefresh || !nextRefreshAt) {
+    ui.nextRefresh.textContent = "Disabled";
+    return;
+  }
+  const diffMs = nextRefreshAt - Date.now();
+  if (diffMs <= 0) {
+    ui.nextRefresh.textContent = "Refreshing...";
+    return;
+  }
+  ui.nextRefresh.textContent = `${Math.ceil(diffMs / 1000)}s`;
+}
+
+function scheduleRefreshLoop() {
+  clearTimers();
+  if (!config.autoRefresh) {
+    ui.nextRefresh.textContent = "Disabled";
+    return;
+  }
+
+  nextRefreshAt = Date.now() + config.refreshSeconds * 1000;
+  refreshTimer = setInterval(() => {
+    refreshBoards();
+  }, config.refreshSeconds * 1000);
+  countdownTimer = setInterval(updateNextRefreshText, 1000);
+  updateNextRefreshText();
+}
+
+async function refreshBoards() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  setStatus("Refreshing...");
+
+  const started = new Date();
+  const results = await Promise.all(BOARD_DEFS.map((board) => fetchBoard(board, config)));
+  let allGood = true;
+
+  for (let i = 0; i < BOARD_DEFS.length; i += 1) {
+    const board = BOARD_DEFS[i];
+    const result = results[i];
+    if (result.ok) {
+      renderBoardSuccess(board.id, result);
+    } else {
+      allGood = false;
+      renderBoardError(board.id, result);
+    }
+  }
+
+  ui.lastUpdated.textContent = started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  setStatus(allGood ? "Live" : "Partial errors", allGood ? "status-ok" : "status-warn");
+
+  if (config.autoRefresh) {
+    nextRefreshAt = Date.now() + config.refreshSeconds * 1000;
+  } else {
+    nextRefreshAt = null;
+  }
+  updateNextRefreshText();
+  isRefreshing = false;
+}
+
+function saveFromForm() {
+  config = readConfigFromForm();
+  saveConfig(config);
+  setSettingsNote("Settings saved.");
+  scheduleRefreshLoop();
+}
+
+async function init() {
+  config = loadConfig();
+  applyConfigToForm(config);
+
+  if (location.protocol === "file:") {
+    setSettingsNote("Opened as a local file. Use Import .env File once, then settings are remembered.");
+  } else if (!config.apiKey && !config.secret) {
+    await loadEnvIntoForm();
+    config = readConfigFromForm();
+    saveConfig(config);
+  }
+
+  ui.loadEnvBtn.addEventListener("click", async () => {
+    await loadEnvIntoForm();
+    saveFromForm();
+  });
+
+  ui.importEnvBtn.addEventListener("click", () => {
+    ui.envFileInput.click();
+  });
+
+  ui.envFileInput.addEventListener("change", async () => {
+    await importEnvFromFile();
+  });
+
+  ui.saveBtn.addEventListener("click", () => {
+    saveFromForm();
+  });
+
+  ui.refreshBtn.addEventListener("click", async () => {
+    saveFromForm();
+    await refreshBoards();
+  });
+
+  ui.settingsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    saveFromForm();
+    await refreshBoards();
+  });
+
+  scheduleRefreshLoop();
+  await refreshBoards();
+}
+
+init();
+
+
+</script>
+</body>
+</html>
