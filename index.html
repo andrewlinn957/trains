@@ -195,13 +195,71 @@ tr:last-child td {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
+.mobile-hidden {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .status-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .boards {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
+  body {
+    background: #eef2f7;
+  }
+
   .app {
-    padding: 0.7rem;
+    padding: 0.6rem;
   }
 
   .topbar h1 {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
+    line-height: 1.25;
+  }
+
+  .subtitle {
+    margin: 0.2rem 0 0.65rem;
+    font-size: 0.87rem;
+  }
+
+  .panel {
+    padding: 0.7rem;
+    border-radius: 10px;
+  }
+
+  .status-panel {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(2px);
+  }
+
+  .board-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  table {
+    min-width: 520px;
+    font-size: 0.86rem;
+  }
+
+  th,
+  td {
+    padding: 0.42rem 0.35rem;
+  }
+
+  th:nth-child(5),
+  td:nth-child(5) {
+    display: none;
   }
 }
 
@@ -373,11 +431,28 @@ const BOARD_DEFS = [
   }
 ];
 
+const SUBTITLE_BASE_TEXT = "Live departures monitor using LDBSVWS";
+const MOBILE_DIRECTION_WINDOWS = {
+  "bop-mog": {
+    startHour: 6,
+    endHour: 14,
+    label: "Bowes Park -> Moorgate",
+    windowLabel: "06:00-13:59"
+  },
+  "mog-bop": {
+    startHour: 14,
+    endHour: 6,
+    label: "Moorgate -> Bowes Park",
+    windowLabel: "14:00-05:59"
+  }
+};
+
 let config = { ...DEFAULT_CONFIG };
 let isRefreshing = false;
 let refreshTimer = null;
 let countdownTimer = null;
 let nextRefreshAt = null;
+let mobileWindowTimer = null;
 
 const ui = {
   baseUrl: document.getElementById("base-url"),
@@ -393,6 +468,7 @@ const ui = {
   statusText: document.getElementById("status-text"),
   lastUpdated: document.getElementById("last-updated"),
   nextRefresh: document.getElementById("next-refresh"),
+  subtitle: document.querySelector(".subtitle"),
   settingsNote: document.getElementById("settings-note"),
   loadEnvBtn: document.getElementById("load-env"),
   importEnvBtn: document.getElementById("import-env-file"),
@@ -458,6 +534,66 @@ function readConfigFromForm() {
     refreshSeconds: toBoundedInt(ui.refreshSeconds.value, DEFAULT_CONFIG.refreshSeconds, 10, 600),
     autoRefresh: Boolean(ui.autoRefresh.checked)
   };
+}
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function isHourInWindow(hour, startHour, endHour) {
+  if (startHour < endHour) {
+    return hour >= startHour && hour < endHour;
+  }
+  return hour >= startHour || hour < endHour;
+}
+
+function getActiveMobileBoardId(now = new Date()) {
+  const hour = now.getHours();
+  for (const board of BOARD_DEFS) {
+    const windowDef = MOBILE_DIRECTION_WINDOWS[board.id];
+    if (!windowDef) continue;
+    if (isHourInWindow(hour, windowDef.startHour, windowDef.endHour)) {
+      return board.id;
+    }
+  }
+  return "bop-mog";
+}
+
+function applyMobileBoardDefaults(now = new Date()) {
+  const mobile = isMobileViewport();
+  const activeBoardId = getActiveMobileBoardId(now);
+
+  for (const board of BOARD_DEFS) {
+    const boardEl = document.getElementById(`board-${board.id}`);
+    if (!boardEl) continue;
+    boardEl.classList.toggle("mobile-hidden", mobile && board.id !== activeBoardId);
+  }
+
+  if (!ui.subtitle) return;
+  if (!mobile) {
+    ui.subtitle.textContent = SUBTITLE_BASE_TEXT;
+    return;
+  }
+
+  const activeWindow = MOBILE_DIRECTION_WINDOWS[activeBoardId];
+  ui.subtitle.textContent = `${SUBTITLE_BASE_TEXT} | Mobile default: ${activeWindow.label} (${activeWindow.windowLabel})`;
+}
+
+function startMobileWindowWatcher() {
+  if (mobileWindowTimer) {
+    clearInterval(mobileWindowTimer);
+    mobileWindowTimer = null;
+  }
+
+  mobileWindowTimer = setInterval(() => {
+    const previousBoardId = getActiveMobileBoardId(new Date(Date.now() - 60 * 1000));
+    const currentBoardId = getActiveMobileBoardId();
+    applyMobileBoardDefaults();
+
+    if (isMobileViewport() && previousBoardId !== currentBoardId) {
+      refreshBoards();
+    }
+  }, 60 * 1000);
 }
 
 function setStatus(text, className = "") {
@@ -855,6 +991,7 @@ function scheduleRefreshLoop() {
 async function refreshBoards() {
   if (isRefreshing) return;
   isRefreshing = true;
+  applyMobileBoardDefaults();
   setStatus("Refreshing...");
 
   const started = new Date();
@@ -894,6 +1031,12 @@ function saveFromForm() {
 async function init() {
   config = loadConfig();
   applyConfigToForm(config);
+  applyMobileBoardDefaults();
+  startMobileWindowWatcher();
+
+  window.addEventListener("resize", () => {
+    applyMobileBoardDefaults();
+  });
 
   if (location.protocol === "file:") {
     setSettingsNote("Opened as a local file. Use Import .env File once, then settings are remembered.");
