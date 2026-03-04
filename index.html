@@ -56,6 +56,10 @@ body {
   display: none;
 }
 
+.settings-panel.visible {
+  display: block;
+}
+
 .settings-panel h2,
 .board h2 {
   margin: 0 0 0.8rem;
@@ -114,6 +118,10 @@ button {
 
 button:hover {
   filter: brightness(1.06);
+}
+
+#toggle-settings {
+  padding: 0.4rem 0.7rem;
 }
 
 .note {
@@ -261,6 +269,10 @@ tr:last-child td {
   td:nth-child(5) {
     display: none;
   }
+
+  #toggle-settings {
+    width: 100%;
+  }
 }
 
 </style>
@@ -334,6 +346,10 @@ tr:last-child td {
           <input id="auto-refresh" name="autoRefresh" type="checkbox">
           Auto-refresh
         </label>
+        <label class="checkbox">
+          <input id="persist-credentials" name="persistCredentials" type="checkbox">
+          Remember credentials on this device
+        </label>
       </form>
       <div class="actions">
         <button id="load-env" type="button">Load .env</button>
@@ -343,7 +359,7 @@ tr:last-child td {
         <button id="refresh-now" type="button">Refresh Now</button>
       </div>
       <p id="settings-note" class="note">
-        Credentials are stored in browser localStorage for this page only.
+        Credentials are never embedded in this page. By default they stay in this browser session only.
       </p>
     </section>
 
@@ -351,6 +367,7 @@ tr:last-child td {
       <div><strong>Status:</strong> <span id="status-text">Idle</span></div>
       <div><strong>Last Updated:</strong> <span id="last-updated">-</span></div>
       <div><strong>Next Refresh:</strong> <span id="next-refresh">-</span></div>
+      <div><button id="toggle-settings" type="button">Show Settings</button></div>
     </section>
 
     <section class="boards">
@@ -402,18 +419,21 @@ tr:last-child td {
 
   <script>
 const STORAGE_KEY = "ldbsvws_dashboard_config_v3";
+const SENSITIVE_STORAGE_KEY = "ldbsvws_dashboard_sensitive_v1";
+const PERSIST_CREDENTIALS_KEY = "ldbsvws_dashboard_persist_credentials_v1";
 
 const DEFAULT_CONFIG = {
   baseUrl: "https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS",
   authMode: "x-apikey",
-  apiKey: "KAi62jDRCMUw76oSDkEGuAi5Na77iyRPyRA9BV9a6jCohYKc",
-  secret: "VA4THRoBwreLzshGsLDGW46cK6br6O0sDjn5vmmEHjbcAPE5KwHKipXUWQ0MPuNS",
+  apiKey: "",
+  secret: "",
   endpointMode: "dep-details",
   timeFormat: "yyyyMMddTHHmmss",
   numRows: 10,
   timeWindow: 120,
   refreshSeconds: 30,
-  autoRefresh: true
+  autoRefresh: true,
+  persistCredentials: false
 };
 
 const BOARD_DEFS = [
@@ -453,8 +473,10 @@ let refreshTimer = null;
 let countdownTimer = null;
 let nextRefreshAt = null;
 let mobileWindowTimer = null;
+let manualSettingsOpen = false;
 
 const ui = {
+  settingsPanel: document.querySelector(".settings-panel"),
   baseUrl: document.getElementById("base-url"),
   authMode: document.getElementById("auth-mode"),
   apiKey: document.getElementById("api-key"),
@@ -465,11 +487,13 @@ const ui = {
   timeWindow: document.getElementById("time-window"),
   refreshSeconds: document.getElementById("refresh-seconds"),
   autoRefresh: document.getElementById("auto-refresh"),
+  persistCredentials: document.getElementById("persist-credentials"),
   statusText: document.getElementById("status-text"),
   lastUpdated: document.getElementById("last-updated"),
   nextRefresh: document.getElementById("next-refresh"),
   subtitle: document.querySelector(".subtitle"),
   settingsNote: document.getElementById("settings-note"),
+  toggleSettingsBtn: document.getElementById("toggle-settings"),
   loadEnvBtn: document.getElementById("load-env"),
   importEnvBtn: document.getElementById("import-env-file"),
   envFileInput: document.getElementById("env-file-input"),
@@ -478,28 +502,76 @@ const ui = {
   settingsForm: document.getElementById("settings-form")
 };
 
-function loadConfig() {
+function loadSensitiveConfig(persistCredentials) {
+  const storage = persistCredentials ? localStorage : sessionStorage;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_CONFIG };
+    const raw = storage.getItem(SENSITIVE_STORAGE_KEY);
+    if (!raw) return { apiKey: "", secret: "" };
     const parsed = JSON.parse(raw);
     return {
-      ...DEFAULT_CONFIG,
-      ...parsed,
-      baseUrl: DEFAULT_CONFIG.baseUrl,
-      authMode: DEFAULT_CONFIG.authMode,
-      apiKey: DEFAULT_CONFIG.apiKey,
-      secret: DEFAULT_CONFIG.secret,
-      endpointMode: DEFAULT_CONFIG.endpointMode,
-      timeFormat: DEFAULT_CONFIG.timeFormat
+      apiKey: String(parsed.apiKey || ""),
+      secret: String(parsed.secret || "")
     };
   } catch (_err) {
-    return { ...DEFAULT_CONFIG };
+    return { apiKey: "", secret: "" };
+  }
+}
+
+function loadConfig() {
+  const persistCredentials = localStorage.getItem(PERSIST_CREDENTIALS_KEY) === "1";
+  const sensitive = loadSensitiveConfig(persistCredentials);
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return {
+        ...DEFAULT_CONFIG,
+        ...sensitive,
+        persistCredentials
+      };
+    }
+    const parsed = JSON.parse(raw);
+    const parsedConfig = { ...parsed };
+    if (Object.prototype.hasOwnProperty.call(parsedConfig, "apiKey") || Object.prototype.hasOwnProperty.call(parsedConfig, "secret")) {
+      delete parsedConfig.apiKey;
+      delete parsedConfig.secret;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsedConfig));
+    }
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsedConfig,
+      apiKey: sensitive.apiKey,
+      secret: sensitive.secret,
+      persistCredentials
+    };
+  } catch (_err) {
+    return {
+      ...DEFAULT_CONFIG,
+      ...sensitive,
+      persistCredentials
+    };
   }
 }
 
 function saveConfig(nextConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
+  const persistCredentials = Boolean(nextConfig.persistCredentials);
+  localStorage.setItem(PERSIST_CREDENTIALS_KEY, persistCredentials ? "1" : "0");
+
+  const { apiKey, secret, ...safeConfig } = nextConfig;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(safeConfig));
+
+  const sensitivePayload = JSON.stringify({
+    apiKey: String(apiKey || ""),
+    secret: String(secret || "")
+  });
+  sessionStorage.setItem(SENSITIVE_STORAGE_KEY, sensitivePayload);
+
+  if (persistCredentials) {
+    localStorage.setItem(SENSITIVE_STORAGE_KEY, sensitivePayload);
+  } else {
+    localStorage.removeItem(SENSITIVE_STORAGE_KEY);
+  }
 }
 
 function applyConfigToForm(nextConfig) {
@@ -513,6 +585,7 @@ function applyConfigToForm(nextConfig) {
   ui.timeWindow.value = String(nextConfig.timeWindow);
   ui.refreshSeconds.value = String(nextConfig.refreshSeconds);
   ui.autoRefresh.checked = Boolean(nextConfig.autoRefresh);
+  ui.persistCredentials.checked = Boolean(nextConfig.persistCredentials);
 }
 
 function toBoundedInt(value, fallback, min, max) {
@@ -532,8 +605,40 @@ function readConfigFromForm() {
     numRows: toBoundedInt(ui.numRows.value, DEFAULT_CONFIG.numRows, 1, 150),
     timeWindow: toBoundedInt(ui.timeWindow.value, DEFAULT_CONFIG.timeWindow, 1, 1440),
     refreshSeconds: toBoundedInt(ui.refreshSeconds.value, DEFAULT_CONFIG.refreshSeconds, 10, 600),
-    autoRefresh: Boolean(ui.autoRefresh.checked)
+    autoRefresh: Boolean(ui.autoRefresh.checked),
+    persistCredentials: Boolean(ui.persistCredentials.checked)
   };
+}
+
+function getCredentialValidationError(nextConfig) {
+  const keyMissing = !nextConfig.apiKey;
+  const secretMissing = !nextConfig.secret;
+
+  switch (nextConfig.authMode) {
+    case "none":
+      return "";
+    case "x-apikey":
+    case "bearer":
+    case "ocp-apim":
+      return keyMissing ? "API key is required for the selected auth mode." : "";
+    case "basic":
+    case "apikey-secret":
+    case "x-api-key-secret":
+    case "x-ibm-client":
+      if (keyMissing && secretMissing) return "API key and secret are required for the selected auth mode.";
+      if (keyMissing) return "API key is required for the selected auth mode.";
+      if (secretMissing) return "Secret is required for the selected auth mode.";
+      return "";
+    default:
+      return "";
+  }
+}
+
+function updateSettingsPanelVisibility(currentConfig = config) {
+  const requiresCredentials = Boolean(getCredentialValidationError(currentConfig));
+  const shouldShow = manualSettingsOpen || requiresCredentials;
+  ui.settingsPanel.classList.toggle("visible", shouldShow);
+  ui.toggleSettingsBtn.textContent = shouldShow ? "Hide Settings" : "Show Settings";
 }
 
 function isMobileViewport() {
@@ -990,6 +1095,19 @@ function scheduleRefreshLoop() {
 
 async function refreshBoards() {
   if (isRefreshing) return;
+  const credentialError = getCredentialValidationError(config);
+  if (credentialError) {
+    clearTimers();
+    applyMobileBoardDefaults();
+    setStatus("Waiting for credentials", "status-warn");
+    for (const board of BOARD_DEFS) {
+      renderBoardError(board.id, { error: `${credentialError} Open Settings and save to continue.` });
+    }
+    ui.nextRefresh.textContent = "Disabled";
+    updateSettingsPanelVisibility(config);
+    return;
+  }
+
   isRefreshing = true;
   applyMobileBoardDefaults();
   setStatus("Refreshing...");
@@ -1024,7 +1142,12 @@ async function refreshBoards() {
 function saveFromForm() {
   config = readConfigFromForm();
   saveConfig(config);
-  setSettingsNote("Settings saved.");
+  setSettingsNote(
+    config.persistCredentials
+      ? "Settings and credentials saved on this device."
+      : "Settings saved. Credentials stay in this browser session unless you enable Remember credentials."
+  );
+  updateSettingsPanelVisibility(config);
   scheduleRefreshLoop();
 }
 
@@ -1032,19 +1155,31 @@ async function init() {
   config = loadConfig();
   applyConfigToForm(config);
   applyMobileBoardDefaults();
+  updateSettingsPanelVisibility(config);
   startMobileWindowWatcher();
 
   window.addEventListener("resize", () => {
     applyMobileBoardDefaults();
+    updateSettingsPanelVisibility(readConfigFromForm());
   });
 
   if (location.protocol === "file:") {
-    setSettingsNote("Opened as a local file. Use Import .env File once, then settings are remembered.");
-  } else if (!config.apiKey && !config.secret) {
-    await loadEnvIntoForm();
-    config = readConfigFromForm();
-    saveConfig(config);
+    setSettingsNote("Opened as a local file. Credentials stay in-session unless Remember credentials is enabled.");
+  } else if (getCredentialValidationError(config)) {
+    setSettingsNote("No credentials are embedded. Enter API credentials in Settings to start live departures.");
   }
+
+  ui.toggleSettingsBtn.addEventListener("click", () => {
+    manualSettingsOpen = !manualSettingsOpen;
+    updateSettingsPanelVisibility(readConfigFromForm());
+  });
+
+  const updateSettingsStateFromForm = () => {
+    updateSettingsPanelVisibility(readConfigFromForm());
+  };
+  ui.authMode.addEventListener("change", updateSettingsStateFromForm);
+  ui.apiKey.addEventListener("input", updateSettingsStateFromForm);
+  ui.secret.addEventListener("input", updateSettingsStateFromForm);
 
   ui.loadEnvBtn.addEventListener("click", async () => {
     await loadEnvIntoForm();
