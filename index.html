@@ -144,6 +144,29 @@ button:hover {
   gap: 0.8rem;
 }
 
+.mobile-tabs {
+  display: none;
+  margin-top: 0.75rem;
+  gap: 0.45rem;
+}
+
+.mobile-tab {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.42rem 0.5rem;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.mobile-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .board-header {
   display: flex;
   justify-content: space-between;
@@ -255,16 +278,48 @@ tr:last-child td {
     gap: 0.2rem;
   }
 
+  .mobile-tabs {
+    display: flex;
+  }
+
+  .table-wrap {
+    overflow-x: hidden;
+  }
+
   table {
-    min-width: 520px;
-    font-size: 0.86rem;
+    min-width: 0;
+    width: 100%;
+    table-layout: fixed;
+    font-size: 0.82rem;
   }
 
   th,
   td {
-    padding: 0.42rem 0.35rem;
+    padding: 0.38rem 0.28rem;
+    white-space: normal;
   }
 
+  th:nth-child(1),
+  td:nth-child(1),
+  th:nth-child(2),
+  td:nth-child(2) {
+    width: 3.1rem;
+    white-space: nowrap;
+  }
+
+  th:nth-child(3),
+  td:nth-child(3) {
+    word-break: break-word;
+  }
+
+  th:nth-child(6),
+  td:nth-child(6) {
+    width: 4.2rem;
+    word-break: break-word;
+  }
+
+  th:nth-child(4),
+  td:nth-child(4),
   th:nth-child(5),
   td:nth-child(5) {
     display: none;
@@ -350,6 +405,14 @@ tr:last-child td {
           <input id="persist-credentials" name="persistCredentials" type="checkbox">
           Remember credentials on this device
         </label>
+        <label>
+          Mobile Default Board
+          <select id="mobile-board-mode" name="mobileBoardMode">
+            <option value="auto">Auto by time window</option>
+            <option value="bop-mog">Always Bowes Park -> Moorgate</option>
+            <option value="mog-bop">Always Moorgate -> Bowes Park</option>
+          </select>
+        </label>
       </form>
       <div class="actions">
         <button id="load-env" type="button">Load .env</button>
@@ -369,6 +432,11 @@ tr:last-child td {
       <div><strong>Next Refresh:</strong> <span id="next-refresh">-</span></div>
       <div><button id="toggle-settings" type="button">Show Settings</button></div>
     </section>
+
+    <nav class="mobile-tabs" id="mobile-tabs" aria-label="Mobile board selector">
+      <button type="button" class="mobile-tab" data-board-tab="bop-mog">Bowes Park -> Moorgate</button>
+      <button type="button" class="mobile-tab" data-board-tab="mog-bop">Moorgate -> Bowes Park</button>
+    </nav>
 
     <section class="boards">
       <article class="panel board" id="board-bop-mog">
@@ -433,7 +501,8 @@ const DEFAULT_CONFIG = {
   timeWindow: 120,
   refreshSeconds: 30,
   autoRefresh: true,
-  persistCredentials: false
+  persistCredentials: false,
+  mobileBoardMode: "auto"
 };
 
 const BOARD_DEFS = [
@@ -466,6 +535,8 @@ const MOBILE_DIRECTION_WINDOWS = {
     windowLabel: "14:00-05:59"
   }
 };
+const BOARD_ID_OPTIONS = new Set(BOARD_DEFS.map((board) => board.id));
+const MOBILE_BOARD_MODE_OPTIONS = new Set(["auto", "bop-mog", "mog-bop"]);
 
 let config = { ...DEFAULT_CONFIG };
 let isRefreshing = false;
@@ -474,9 +545,12 @@ let countdownTimer = null;
 let nextRefreshAt = null;
 let mobileWindowTimer = null;
 let manualSettingsOpen = false;
+let mobileSelectedBoardId = null;
 
 const ui = {
   settingsPanel: document.querySelector(".settings-panel"),
+  mobileTabs: document.getElementById("mobile-tabs"),
+  mobileTabButtons: Array.from(document.querySelectorAll("[data-board-tab]")),
   baseUrl: document.getElementById("base-url"),
   authMode: document.getElementById("auth-mode"),
   apiKey: document.getElementById("api-key"),
@@ -488,6 +562,7 @@ const ui = {
   refreshSeconds: document.getElementById("refresh-seconds"),
   autoRefresh: document.getElementById("auto-refresh"),
   persistCredentials: document.getElementById("persist-credentials"),
+  mobileBoardMode: document.getElementById("mobile-board-mode"),
   statusText: document.getElementById("status-text"),
   lastUpdated: document.getElementById("last-updated"),
   nextRefresh: document.getElementById("next-refresh"),
@@ -586,6 +661,7 @@ function applyConfigToForm(nextConfig) {
   ui.refreshSeconds.value = String(nextConfig.refreshSeconds);
   ui.autoRefresh.checked = Boolean(nextConfig.autoRefresh);
   ui.persistCredentials.checked = Boolean(nextConfig.persistCredentials);
+  ui.mobileBoardMode.value = normalizeMobileBoardMode(nextConfig.mobileBoardMode);
 }
 
 function toBoundedInt(value, fallback, min, max) {
@@ -606,8 +682,19 @@ function readConfigFromForm() {
     timeWindow: toBoundedInt(ui.timeWindow.value, DEFAULT_CONFIG.timeWindow, 1, 1440),
     refreshSeconds: toBoundedInt(ui.refreshSeconds.value, DEFAULT_CONFIG.refreshSeconds, 10, 600),
     autoRefresh: Boolean(ui.autoRefresh.checked),
-    persistCredentials: Boolean(ui.persistCredentials.checked)
+    persistCredentials: Boolean(ui.persistCredentials.checked),
+    mobileBoardMode: normalizeMobileBoardMode(ui.mobileBoardMode.value)
   };
+}
+
+function normalizeMobileBoardMode(value) {
+  const mode = String(value || "").trim();
+  return MOBILE_BOARD_MODE_OPTIONS.has(mode) ? mode : DEFAULT_CONFIG.mobileBoardMode;
+}
+
+function normalizeBoardId(value, fallback = "bop-mog") {
+  const boardId = String(value || "").trim();
+  return BOARD_ID_OPTIONS.has(boardId) ? boardId : fallback;
 }
 
 function getCredentialValidationError(nextConfig) {
@@ -652,27 +739,50 @@ function isHourInWindow(hour, startHour, endHour) {
   return hour >= startHour || hour < endHour;
 }
 
-function getActiveMobileBoardId(now = new Date()) {
+function getActiveMobileBoardId(now = new Date(), nextConfig = config) {
+  const mode = normalizeMobileBoardMode(nextConfig.mobileBoardMode);
+  if (mode !== "auto") return normalizeBoardId(mode);
+
   const hour = now.getHours();
   for (const board of BOARD_DEFS) {
     const windowDef = MOBILE_DIRECTION_WINDOWS[board.id];
     if (!windowDef) continue;
     if (isHourInWindow(hour, windowDef.startHour, windowDef.endHour)) {
-      return board.id;
+      return normalizeBoardId(board.id);
     }
   }
-  return "bop-mog";
+  return normalizeBoardId("bop-mog");
 }
 
-function applyMobileBoardDefaults(now = new Date()) {
+function getDisplayedMobileBoardId(now = new Date(), nextConfig = config) {
+  const defaultBoardId = getActiveMobileBoardId(now, nextConfig);
+  if (!mobileSelectedBoardId) return defaultBoardId;
+  return normalizeBoardId(mobileSelectedBoardId, defaultBoardId);
+}
+
+function updateMobileTabState(activeBoardId) {
+  if (!Array.isArray(ui.mobileTabButtons)) return;
+  const normalizedActiveId = normalizeBoardId(activeBoardId);
+  for (const button of ui.mobileTabButtons) {
+    const buttonBoardId = normalizeBoardId(button.dataset.boardTab, normalizedActiveId);
+    const isActive = buttonBoardId === normalizedActiveId;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  }
+}
+
+function applyMobileBoardDefaults(now = new Date(), nextConfig = config) {
   const mobile = isMobileViewport();
-  const activeBoardId = getActiveMobileBoardId(now);
+  const mode = normalizeMobileBoardMode(nextConfig.mobileBoardMode);
+  const defaultBoardId = getActiveMobileBoardId(now, nextConfig);
+  const activeBoardId = getDisplayedMobileBoardId(now, nextConfig);
 
   for (const board of BOARD_DEFS) {
     const boardEl = document.getElementById(`board-${board.id}`);
     if (!boardEl) continue;
     boardEl.classList.toggle("mobile-hidden", mobile && board.id !== activeBoardId);
   }
+  updateMobileTabState(activeBoardId);
 
   if (!ui.subtitle) return;
   if (!mobile) {
@@ -680,8 +790,20 @@ function applyMobileBoardDefaults(now = new Date()) {
     return;
   }
 
-  const activeWindow = MOBILE_DIRECTION_WINDOWS[activeBoardId];
-  ui.subtitle.textContent = `${SUBTITLE_BASE_TEXT} | Mobile default: ${activeWindow.label} (${activeWindow.windowLabel})`;
+  if (mobileSelectedBoardId && activeBoardId !== defaultBoardId) {
+    const selectedWindow = MOBILE_DIRECTION_WINDOWS[activeBoardId];
+    ui.subtitle.textContent = `${SUBTITLE_BASE_TEXT} | Mobile tab: ${selectedWindow.label}`;
+    return;
+  }
+
+  if (mode === "auto") {
+    const activeWindow = MOBILE_DIRECTION_WINDOWS[defaultBoardId];
+    ui.subtitle.textContent = `${SUBTITLE_BASE_TEXT} | Mobile default: ${activeWindow.label} (${activeWindow.windowLabel})`;
+    return;
+  }
+
+  const forcedWindow = MOBILE_DIRECTION_WINDOWS[defaultBoardId];
+  ui.subtitle.textContent = `${SUBTITLE_BASE_TEXT} | Mobile default overridden: ${forcedWindow.label}`;
 }
 
 function startMobileWindowWatcher() {
@@ -695,7 +817,7 @@ function startMobileWindowWatcher() {
     const currentBoardId = getActiveMobileBoardId();
     applyMobileBoardDefaults();
 
-    if (isMobileViewport() && previousBoardId !== currentBoardId) {
+    if (isMobileViewport() && !mobileSelectedBoardId && previousBoardId !== currentBoardId) {
       refreshBoards();
     }
   }, 60 * 1000);
@@ -1141,12 +1263,14 @@ async function refreshBoards() {
 
 function saveFromForm() {
   config = readConfigFromForm();
+  mobileSelectedBoardId = null;
   saveConfig(config);
   setSettingsNote(
     config.persistCredentials
       ? "Settings and credentials saved on this device."
       : "Settings saved. Credentials stay in this browser session unless you enable Remember credentials."
   );
+  applyMobileBoardDefaults(new Date(), config);
   updateSettingsPanelVisibility(config);
   scheduleRefreshLoop();
 }
@@ -1180,6 +1304,20 @@ async function init() {
   ui.authMode.addEventListener("change", updateSettingsStateFromForm);
   ui.apiKey.addEventListener("input", updateSettingsStateFromForm);
   ui.secret.addEventListener("input", updateSettingsStateFromForm);
+  ui.mobileBoardMode.addEventListener("change", () => {
+    mobileSelectedBoardId = null;
+    const previewConfig = readConfigFromForm();
+    applyMobileBoardDefaults(new Date(), previewConfig);
+    updateSettingsPanelVisibility(previewConfig);
+  });
+  for (const tabButton of ui.mobileTabButtons) {
+    tabButton.addEventListener("click", () => {
+      const previewConfig = readConfigFromForm();
+      const defaultBoardId = getActiveMobileBoardId(new Date(), previewConfig);
+      mobileSelectedBoardId = normalizeBoardId(tabButton.dataset.boardTab, defaultBoardId);
+      applyMobileBoardDefaults(new Date(), previewConfig);
+    });
+  }
 
   ui.loadEnvBtn.addEventListener("click", async () => {
     await loadEnvIntoForm();
